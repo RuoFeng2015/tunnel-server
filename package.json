@@ -1,0 +1,46 @@
+{
+  "name": "tunnel-server",
+  "version": "1.0.0",
+  "description": "内网穿透中转服务器 - 生产级实现",
+  "main": "app.js",  "scripts": {
+    "start": "node app.js",
+    "dev": "cross-env NODE_ENV=development nodemon app.js",
+    "install:taobao": "npm config set registry https://registry.npmmirror.com && npm install",
+    "install:reset": "npm config set registry https://registry.npmjs.org/",
+    "pm2": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop tunnel-server",
+    "pm2:restart": "pm2 restart tunnel-server",
+    "pm2:logs": "pm2 logs tunnel-server",
+    "test": "node test.js",
+    "docker:build": "docker build -t tunnel-server .",
+    "docker:run": "docker run -d -p 8080:8080 -p 8081:8081 -p 8082:8082 --name tunnel-server tunnel-server",
+    "docker:stop": "docker stop tunnel-server && docker rm tunnel-server"
+  },
+  "dependencies": {
+    "@koa/cors": "^4.0.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "http-proxy": "^1.18.1",
+    "jsonwebtoken": "^9.0.2",
+    "koa": "^2.14.2",
+    "koa-bodyparser": "^4.4.1",
+    "koa-router": "^12.0.0",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.1.10"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "tunnel",
+    "proxy",
+    "server",
+    "koa",
+    "nodejs"
+  ],
+  "author": "ruofeng <ruofeng@126.com>",
+  "license": "MIT"
+}
