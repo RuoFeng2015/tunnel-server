@@ -12,7 +12,7 @@ async function testLocalConnection() {
 
     for (const test of tests) {
         console.log(`测试: ${test.name} (${test.host}:${test.port})`);
-        
+
         try {
             await testConnection(test.host, test.port);
             console.log(`✅ ${test.name} - 连接成功\n`);

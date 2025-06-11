@@ -127,20 +127,18 @@ class ClientManager {
 
   /**
    * 添加路由映射
-   */
-  addRoute(route, clientId) {
+   */  addRoute(route, clientId) {
     this.routes.set(route, clientId);
-    Logger.debug(`添加路由映射: ${route} -> ${clientId}`);
+    // Logger.debug(`添加路由映射: ${route} -> ${clientId}`);
   }
 
   /**
    * 移除客户端的所有路由
    */
-  removeRoutes(clientId) {
-    for (const [route, cId] of this.routes.entries()) {
+  removeRoutes(clientId) {    for (const [route, cId] of this.routes.entries()) {
       if (cId === clientId) {
         this.routes.delete(route);
-        Logger.debug(`移除路由映射: ${route}`);
+        // Logger.debug(`移除路由映射: ${route}`);
       }
     }
   }
@@ -196,7 +194,7 @@ class TunnelServer {
       }) + '\n');
       socket.destroy();
       return;
-    }    const clientInfo = {
+    } const clientInfo = {
       socket: socket,
       authenticated: false,
       clientId: null,
@@ -218,10 +216,8 @@ class TunnelServer {
     socket.on('data', (data) => {
       clientInfo.bytesReceived += data.length;
       this.handleClientMessage(clientInfo, data);
-    });
-
-    socket.on('close', () => {
-      Logger.debug(`客户端关闭连接: ${clientInfo.remoteAddress}:${clientInfo.remotePort}`);
+    });    socket.on('close', () => {
+      // Logger.debug(`客户端关闭连接: ${clientInfo.remoteAddress}:${clientInfo.remotePort}`);
       this.clientManager.removeClient(socket);
     });
 
@@ -243,19 +239,19 @@ class TunnelServer {
     try {
       // 将新数据添加到缓冲区
       clientInfo.messageBuffer += data.toString();
-      
+
       // 处理完整的消息（以换行符分隔）
       const lines = clientInfo.messageBuffer.split('\n');
-      
+
       // 保留最后一个可能不完整的消息
       clientInfo.messageBuffer = lines.pop() || '';
-      
+
       // 处理完整的消息
       for (const messageStr of lines) {
-        if (messageStr.trim()) {
-          try {
-            const message = JSON.parse(messageStr);
-            Logger.debug(`收到消息: ${message.type} from ${clientInfo.clientId || clientInfo.remoteAddress}`);            switch (message.type) {
+        if (messageStr.trim()) {          try {            const message = JSON.parse(messageStr);
+            // Logger.debug(`收到消息: ${message.type} from ${clientInfo.clientId || clientInfo.remoteAddress}`);
+
+            switch (message.type) {
               case 'auth':
                 this.handleAuth(clientInfo, message);
                 break;
@@ -361,14 +357,12 @@ class TunnelServer {
    * 处理心跳
    */
   handleHeartbeat(clientInfo, message) {
-    clientInfo.lastHeartbeat = Date.now();
-
-    this.sendMessage(clientInfo.socket, {
+    clientInfo.lastHeartbeat = Date.now();    this.sendMessage(clientInfo.socket, {
       type: 'heartbeat_ack',
       timestamp: Date.now()
     });
 
-    Logger.debug(`心跳响应: ${clientInfo.clientId || clientInfo.remoteAddress}`);
+    // Logger.debug(`心跳响应: ${clientInfo.clientId || clientInfo.remoteAddress}`);
   }
 
   /**
@@ -409,37 +403,35 @@ class TunnelServer {
         }        // 智能处理响应体
         let responseBody;
         if (body) {
-          Logger.debug(`原始响应体长度: ${body.length}, 类型: ${typeof body}`);
-          
+          // Logger.debug(`原始响应体长度: ${body.length}, 类型: ${typeof body}`);
+
           // 尝试多种解码方式
           try {
             // 方法1: 检查是否为有效的base64
             if (typeof body === 'string' && body.length > 0 && /^[A-Za-z0-9+/]+=*$/.test(body.trim())) {
               const base64Test = Buffer.from(body.trim(), 'base64');
               responseBody = base64Test;
-              Logger.debug(`使用Base64解码: ${body.length} chars -> ${base64Test.length} bytes`);
+              // Logger.debug(`使用Base64解码: ${body.length} chars -> ${base64Test.length} bytes`);
             } else {
               throw new Error('Not valid base64');
             }
           } catch (error1) {
             // 方法2: 使用binary编码（最适合二进制数据）
             responseBody = Buffer.from(body, 'binary');
-            Logger.debug(`使用binary编码: ${body.length} chars -> ${responseBody.length} bytes`);
+            // Logger.debug(`使用binary编码: ${body.length} chars -> ${responseBody.length} bytes`);
           }
         } else {
           responseBody = Buffer.alloc(0);
-          Logger.debug('空响应体');
-        }        // 发送响应
+          // Logger.debug('空响应体');
+        }// 发送响应
         res.statusCode = status_code || 200;
-        res.end(responseBody);
-
-        clientInfo.bytesSent += (responseBody.length || 0);
+        res.end(responseBody);        clientInfo.bytesSent += (responseBody.length || 0);
         clientInfo.requestCount++;
 
-        Logger.debug(`代理响应完成: ${request_id} -> ${status_code}, body: ${responseBody.length} bytes`);
+        // Logger.debug(`代理响应完成: ${request_id} -> ${status_code}, body: ${responseBody.length} bytes`);
       } catch (error) {
         Logger.error(`发送代理响应失败: ${error.message}`);
-        
+
         // 发送错误响应，但只有在响应还没有发送的情况下
         try {
           if (!res.headersSent) {
@@ -459,17 +451,19 @@ class TunnelServer {
 
       this.requestQueue.delete(request_id);
     }
-  }
-  /**
+  }  /**
    * 处理WebSocket升级响应
-   */
-  handleWebSocketUpgradeResponse(clientInfo, message) {
+   */  handleWebSocketUpgradeResponse(clientInfo, message) {
     const { upgrade_id, status_code, headers } = message;
 
-    // 查找对应的WebSocket升级请求
-    const upgradeInfo = this.requestQueue.get(upgrade_id);
+    // Logger.debug(`收到WebSocket升级响应: ${upgrade_id}, 状态: ${status_code}`);
+
+    // 查找对应的WebSocket升级请求 - 从ProxyServer的requestQueue中查找
+    const upgradeInfo = global.proxyServer.requestQueue.get(upgrade_id);
     if (!upgradeInfo || upgradeInfo.type !== 'websocket_upgrade') {
       Logger.warn(`未找到WebSocket升级请求: ${upgrade_id}`);
+      // Logger.debug(`TunnelServer请求队列中的项目: ${Array.from(this.requestQueue.keys()).join(', ')}`);
+      // Logger.debug(`ProxyServer请求队列中的项目: ${Array.from(global.proxyServer.requestQueue.keys()).join(', ')}`);
       return;
     }
 
@@ -479,12 +473,12 @@ class TunnelServer {
       if (status_code === 101) {
         // WebSocket升级成功
         Logger.info(`WebSocket升级成功: ${upgrade_id}`);
-        
+
         // 发送101响应
         let responseHeaders = 'HTTP/1.1 101 Switching Protocols\r\n';
         responseHeaders += 'Upgrade: websocket\r\n';
         responseHeaders += 'Connection: Upgrade\r\n';
-        
+
         if (headers) {
           Object.entries(headers).forEach(([key, value]) => {
             if (key.toLowerCase() !== 'connection' && key.toLowerCase() !== 'upgrade') {
@@ -492,13 +486,13 @@ class TunnelServer {
             }
           });
         }
-        
+
         responseHeaders += '\r\n';
         socket.write(responseHeaders);
 
         // 建立WebSocket数据转发
         this.setupWebSocketDataForwarding(socket, clientInfo, upgrade_id);
-        
+
       } else {
         // WebSocket升级失败
         Logger.warn(`WebSocket升级失败: ${upgrade_id}, 状态码: ${status_code}`);
@@ -511,14 +505,14 @@ class TunnelServer {
       socket.destroy();
     }
 
-    this.requestQueue.delete(upgrade_id);
+    // 从ProxyServer的requestQueue中删除请求
+    global.proxyServer.requestQueue.delete(upgrade_id);
   }
 
   /**
    * 设置WebSocket数据转发
-   */
-  setupWebSocketDataForwarding(browserSocket, clientInfo, upgradeId) {
-    Logger.debug(`设置WebSocket数据转发: ${upgradeId}`);
+   */  setupWebSocketDataForwarding(browserSocket, clientInfo, upgradeId) {
+    // Logger.debug(`设置WebSocket数据转发: ${upgradeId}`);
 
     // 存储WebSocket连接
     this.requestQueue.set(`ws_${upgradeId}`, {
@@ -537,11 +531,9 @@ class TunnelServer {
         timestamp: Date.now()
       };
       this.sendMessage(clientInfo.socket, wsMessage);
-    });
-
-    // 处理浏览器连接关闭
+    });    // 处理浏览器连接关闭
     browserSocket.on('close', () => {
-      Logger.debug(`浏览器WebSocket连接关闭: ${upgradeId}`);
+      // Logger.debug(`浏览器WebSocket连接关闭: ${upgradeId}`);
       const wsMessage = {
         type: 'websocket_close',
         upgrade_id: upgradeId,
@@ -568,7 +560,7 @@ class TunnelServer {
    */
   handleWebSocketData(clientInfo, message) {
     const { upgrade_id, data } = message;
-    
+
     const wsConnection = this.requestQueue.get(`ws_${upgrade_id}`);
     if (!wsConnection || wsConnection.type !== 'websocket_connection') {
       Logger.warn(`未找到WebSocket连接: ${upgrade_id}`);
@@ -589,7 +581,7 @@ class TunnelServer {
    */
   handleWebSocketClose(clientInfo, message) {
     const { upgrade_id } = message;
-    
+
     const wsConnection = this.requestQueue.get(`ws_${upgrade_id}`);
     if (wsConnection && wsConnection.type === 'websocket_connection') {
       Logger.debug(`关闭WebSocket连接: ${upgrade_id}`);
@@ -609,14 +601,12 @@ class TunnelServer {
 
     // 检查是否是multipart请求
     const contentType = req.headers['content-type'] || '';
-    const isMultipart = contentType.includes('multipart/form-data');
+    const isMultipart = contentType.includes('multipart/form-data');    if (isMultipart && ctx) {
+      // Logger.debug('处理multipart/form-data请求');
 
-    if (isMultipart && ctx) {
-      Logger.debug('处理multipart/form-data请求');
-      
       // 对于multipart请求，从原始请求流读取数据
       let body = '';
-      
+
       ctx.req.on('data', chunk => {
         body += chunk.toString();
       });
@@ -632,10 +622,10 @@ class TunnelServer {
           timestamp: Date.now()
         };
 
-        Logger.debug(`Sending multipart proxy_request to client ${clientInfo.clientId}: ID=${requestId}, Method=${message.method}, URL=${message.url}, BodyLength=${body.length}`);
+        // Logger.debug(`Sending multipart proxy_request to client ${clientInfo.clientId}: ID=${requestId}, Method=${message.method}, URL=${message.url}, BodyLength=${body.length}`);
         this.sendMessage(clientInfo.socket, message);
       });
-      
+
     } else {
       // 对于非multipart请求，使用原来的逻辑
       let body = '';
@@ -654,7 +644,7 @@ class TunnelServer {
           timestamp: Date.now()
         };
 
-        Logger.debug(`Sending proxy_request to client ${clientInfo.clientId}: ID=${requestId}, Method=${message.method}, URL=${message.url}, Headers=${JSON.stringify(message.headers)}, BodyLength=${body.length}`);
+        // Logger.debug(`Sending proxy_request to client ${clientInfo.clientId}: ID=${requestId}, Method=${message.method}, URL=${message.url}, Headers=${JSON.stringify(message.headers)}, BodyLength=${body.length}`);
         this.sendMessage(clientInfo.socket, message);
       });
     }
@@ -740,6 +730,7 @@ class ProxyServer {
     this.clientManager = clientManager;
     this.app = new Koa();
     this.server = null;
+    this.requestQueue = new Map(); // 存储待处理的请求
     this.setupRoutes();
   }
 
@@ -748,21 +739,19 @@ class ProxyServer {
    */
   setupRoutes() {    // CORS配置
     this.app.use(cors());
-    
+
     // 配置body parser以更好地处理各种类型的请求
     this.app.use(async (ctx, next) => {
-      const contentType = ctx.headers['content-type'] || '';
-      
-      // 如果是multipart/form-data，跳过body parser，让它作为原始数据传递
+      const contentType = ctx.headers['content-type'] || '';    // 如果是multipart/form-data，跳过body parser，让它作为原始数据传递
       if (contentType.includes('multipart/form-data')) {
-        Logger.debug(`跳过multipart请求的body parser: ${ctx.method} ${ctx.url}`);
+        // Logger.debug(`跳过multipart请求的body parser: ${ctx.method} ${ctx.url}`);
         // 不解析body，保持原始格式
         await next();
       } else {
         // 对于其他类型，使用标准body parser
         await bodyParser({
           jsonLimit: '10mb',
-          formLimit: '10mb', 
+          formLimit: '10mb',
           textLimit: '10mb',
           enableTypes: ['json', 'form', 'text'],
           onerror: (err, ctx) => {
@@ -784,12 +773,12 @@ class ProxyServer {
         const subdomain = this.extractSubdomain(host);        // 查找对应的客户端
         let client = null;
 
-        Logger.debug(`收到代理请求: ${ctx.method} ${ctx.url} from ${ctx.ip}`);
+        // Logger.debug(`收到代理请求: ${ctx.method} ${ctx.url} from ${ctx.ip}`);
 
         // 首先尝试subdomain路由
         if (subdomain) {
           client = this.clientManager.getClientByRoute(subdomain);
-          Logger.debug(`Subdomain路由查找: ${subdomain} -> ${client ? client.clientId : 'not found'}`);
+          // Logger.debug(`Subdomain路由查找: ${subdomain} -> ${client ? client.clientId : 'not found'}`);
         }
 
         // 如果没找到，尝试路径路由
@@ -804,7 +793,7 @@ class ProxyServer {
               client = this.clientManager.getClient(pathRoute);
             }
 
-            Logger.debug(`路径路由查找: ${pathRoute} -> ${client ? client.clientId : 'not found'}`);
+            // Logger.debug(`路径路由查找: ${pathRoute} -> ${client ? client.clientId : 'not found'}`);
           }
         }
 
@@ -812,7 +801,7 @@ class ProxyServer {
         if (!client) {
           const clients = this.clientManager.getAllClients();
           client = clients.find(c => c.authenticated);
-          Logger.debug(`使用默认客户端: ${client ? client.clientId : 'none available'}`);
+          // Logger.debug(`使用默认客户端: ${client ? client.clientId : 'none available'}`);
         }
 
         if (!client || !client.authenticated) {
@@ -868,20 +857,19 @@ class ProxyServer {
         }
         if (proxiedUrl === '') {
           proxiedUrl = '/';
-        }
-        Logger.debug(`URL rewritten: original='${originalUrl}', new='${proxiedUrl}' for client='${client.clientId}'`);
+        }        // Logger.debug(`URL rewritten: original='${originalUrl}', new='${proxiedUrl}' for client='${client.clientId}'`);
       } else {
-        Logger.debug(`URL not rewritten. original='${originalUrl}', client='${client ? client.clientId : 'N/A'}', clientIdFromPath='${clientIdFromPath}'`);
+        // Logger.debug(`URL not rewritten. original='${originalUrl}', client='${client ? client.clientId : 'N/A'}', clientIdFromPath='${clientIdFromPath}'`);
       }      // Prepare headers: copy original headers and remove problematic headers
       const headersToSend = { ...ctx.headers };
       const originalHostHeader = headersToSend.host;
-      
+
       // 删除可能导致问题的头信息
       delete headersToSend.host; // 删除host头，让目标客户端自己设置
       delete headersToSend.connection; // 删除connection头
       delete headersToSend['content-length']; // 删除content-length，让目标客户端重新计算
-      
-      Logger.debug(`Headers cleaned. Original host: '${originalHostHeader}'. Removed: host, connection, content-length. Forwarding to client: ${client.clientId}`);
+
+      // Logger.debug(`Headers cleaned. Original host: '${originalHostHeader}'. Removed: host, connection, content-length. Forwarding to client: ${client.clientId}`);
 
       const req = {
         method: ctx.method,
@@ -900,7 +888,7 @@ class ProxyServer {
       setImmediate(() => {
         // 从Koa解析的请求体获取数据，而不是从原始请求流
         let bodyToSend = '';
-        
+
         if (ctx.request.body !== undefined && ctx.request.body !== null) {
           if (typeof ctx.request.body === 'string') {
             bodyToSend = ctx.request.body;
@@ -910,14 +898,12 @@ class ProxyServer {
               bodyToSend = JSON.stringify(ctx.request.body);
             }
           }
-        }
-        
-        // 只在有实际内容时触发data事件
+        }        // 只在有实际内容时触发data事件
         if (bodyToSend) {
           req._dataHandlers.forEach(handler => handler(bodyToSend));
-          Logger.debug(`Forwarding request body: ${bodyToSend.length} bytes`);
+          // Logger.debug(`Forwarding request body: ${bodyToSend.length} bytes`);
         } else {
-          Logger.debug('No request body to forward');
+          // Logger.debug('No request body to forward');
         }
 
         // 触发end事件
@@ -989,25 +975,24 @@ class ProxyServer {
   }
   /**
    * 设置WebSocket代理
-   */
-  setupWebSocketProxy() {
+   */  setupWebSocketProxy() {
     this.server.on('upgrade', (request, socket, head) => {
-      Logger.debug(`WebSocket升级请求: ${request.url}`);
+      // Logger.debug(`WebSocket升级请求: ${request.url}`);
 
       // 解析URL来确定客户端
       const url = new URL(request.url, `http://${request.headers.host}`);
       const pathRoute = url.pathname.split('/')[1]; // 获取第一级路径，如 ha-client-001
-      
+
       // 查找对应的客户端
       let client = null;
-      
+
       if (pathRoute) {
         client = this.clientManager.getClientByRoute(pathRoute);
         if (!client) {
           client = this.clientManager.getClient(pathRoute);
         }
       }
-      
+
       // 如果没找到特定客户端，使用默认的已认证客户端
       if (!client) {
         const clients = this.clientManager.getAllClients();
@@ -1019,9 +1004,7 @@ class ProxyServer {
         socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
         socket.destroy();
         return;
-      }
-
-      Logger.info(`WebSocket升级请求转发到客户端: ${client.clientId}`);
+      } Logger.info(`WebSocket升级请求转发到客户端: ${client.clientId}`);
 
       // 发送WebSocket升级请求到客户端
       this.handleWebSocketUpgrade(request, socket, head, client);
@@ -1033,11 +1016,11 @@ class ProxyServer {
    */
   handleWebSocketUpgrade(request, socket, head, client) {
     const upgradeId = this.generateRequestId();
-    
+
     // 存储WebSocket连接信息
-    this.requestQueue.set(upgradeId, { 
-      socket, 
-      clientInfo: client, 
+    this.requestQueue.set(upgradeId, {
+      socket,
+      clientInfo: client,
       timestamp: Date.now(),
       type: 'websocket_upgrade'
     });
@@ -1059,7 +1042,6 @@ class ProxyServer {
     const headersToSend = { ...request.headers };
     delete headersToSend.host; // 让客户端设置正确的host
     delete headersToSend.connection;
-    
     const upgradeMessage = {
       type: 'websocket_upgrade',
       upgrade_id: upgradeId,
@@ -1069,7 +1051,7 @@ class ProxyServer {
       timestamp: Date.now()
     };
 
-    Logger.debug(`发送WebSocket升级请求: ${upgradeId} ${proxiedUrl}`);
+    // Logger.debug(`发送WebSocket升级请求: ${upgradeId} ${proxiedUrl}`);
     this.sendMessage(client.socket, upgradeMessage);
 
     // 设置超时
@@ -1082,7 +1064,6 @@ class ProxyServer {
       }
     }, 10000); // 10秒超时
   }
-
   /**
    * 停止代理服务器
    */
@@ -1090,6 +1071,27 @@ class ProxyServer {
     if (this.server) {
       this.server.close();
       Logger.info('代理服务器已停止');
+    }
+  }
+
+  /**
+   * 生成请求ID
+   */
+  generateRequestId() {
+    return crypto.randomBytes(16).toString('hex');
+  }
+
+  /**
+   * 发送消息给客户端
+   */
+  sendMessage(socket, message) {
+    try {
+      const data = JSON.stringify(message) + '\n';
+      socket.write(data);
+      return true;
+    } catch (error) {
+      Logger.error(`发送消息失败: ${error.message}`);
+      return false;
     }
   }
 }
@@ -1112,7 +1114,7 @@ class AdminServer {
     const router = new Router();
 
     // CORS和body parser    this.app.use(cors());
-    
+
     // 配置管理接口的body parser
     this.app.use(bodyParser({
       jsonLimit: '1mb',
@@ -1304,10 +1306,9 @@ class TunnelServerMain {
     this.clientManager = new ClientManager();
     this.tunnelServer = new TunnelServer(this.clientManager);
     this.proxyServer = new ProxyServer(this.clientManager);
-    this.adminServer = new AdminServer(this.clientManager);
-
-    // 设置全局引用
+    this.adminServer = new AdminServer(this.clientManager);    // 设置全局引用
     global.tunnelServer = this.tunnelServer;
+    global.proxyServer = this.proxyServer;
   }
 
   /**

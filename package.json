@@ -2,7 +2,8 @@
   "name": "tunnel-server",
   "version": "1.0.0",
   "description": "内网穿透中转服务器 - 生产级实现",
-  "main": "app.js",  "scripts": {
+  "main": "app.js",
+  "scripts": {
     "start": "node app.js",
     "dev": "cross-env NODE_ENV=development nodemon app.js",
     "install:taobao": "npm config set registry https://registry.npmmirror.com && npm install",
