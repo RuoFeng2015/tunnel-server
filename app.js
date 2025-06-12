@@ -135,7 +135,8 @@ class ClientManager {
   /**
    * 移除客户端的所有路由
    */
-  removeRoutes(clientId) {    for (const [route, cId] of this.routes.entries()) {
+  removeRoutes(clientId) {
+    for (const [route, cId] of this.routes.entries()) {
       if (cId === clientId) {
         this.routes.delete(route);
         // Logger.debug(`移除路由映射: ${route}`);
@@ -216,7 +217,7 @@ class TunnelServer {
     socket.on('data', (data) => {
       clientInfo.bytesReceived += data.length;
       this.handleClientMessage(clientInfo, data);
-    });    socket.on('close', () => {
+    }); socket.on('close', () => {
       // Logger.debug(`客户端关闭连接: ${clientInfo.remoteAddress}:${clientInfo.remotePort}`);
       this.clientManager.removeClient(socket);
     });
@@ -248,7 +249,9 @@ class TunnelServer {
 
       // 处理完整的消息
       for (const messageStr of lines) {
-        if (messageStr.trim()) {          try {            const message = JSON.parse(messageStr);
+        if (messageStr.trim()) {
+          try {
+            const message = JSON.parse(messageStr);
             // Logger.debug(`收到消息: ${message.type} from ${clientInfo.clientId || clientInfo.remoteAddress}`);
 
             switch (message.type) {
@@ -357,7 +360,7 @@ class TunnelServer {
    * 处理心跳
    */
   handleHeartbeat(clientInfo, message) {
-    clientInfo.lastHeartbeat = Date.now();    this.sendMessage(clientInfo.socket, {
+    clientInfo.lastHeartbeat = Date.now(); this.sendMessage(clientInfo.socket, {
       type: 'heartbeat_ack',
       timestamp: Date.now()
     });
@@ -425,7 +428,7 @@ class TunnelServer {
           // Logger.debug('空响应体');
         }// 发送响应
         res.statusCode = status_code || 200;
-        res.end(responseBody);        clientInfo.bytesSent += (responseBody.length || 0);
+        res.end(responseBody); clientInfo.bytesSent += (responseBody.length || 0);
         clientInfo.requestCount++;
 
         // Logger.debug(`代理响应完成: ${request_id} -> ${status_code}, body: ${responseBody.length} bytes`);
@@ -467,21 +470,47 @@ class TunnelServer {
       return;
     }
 
-    const { socket } = upgradeInfo;
-
-    try {
+    const { socket } = upgradeInfo; try {
       if (status_code === 101) {
         // WebSocket升级成功
         Logger.info(`WebSocket升级成功: ${upgrade_id}`);
+
+        // 清除升级超时计时器
+        if (upgradeInfo.upgradeTimeoutId) {
+          clearTimeout(upgradeInfo.upgradeTimeoutId);
+          Logger.debug(`清除WebSocket升级超时计时器: ${upgrade_id}`);
+        }
+
+        // 验证并重新计算WebSocket Accept头（确保正确性）
+        const originalWebSocketKey = upgradeInfo.originalWebSocketKey;
+        let websocketAccept = null;
+
+        if (originalWebSocketKey) {
+          // 重新计算正确的WebSocket Accept值
+          const crypto = require('crypto');
+          websocketAccept = crypto.createHash('sha1')
+            .update(originalWebSocketKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+            .digest('base64');
+          Logger.debug(`重新计算WebSocket Accept: ${websocketAccept} (Key: ${originalWebSocketKey})`);
+        }
 
         // 发送101响应
         let responseHeaders = 'HTTP/1.1 101 Switching Protocols\r\n';
         responseHeaders += 'Upgrade: websocket\r\n';
         responseHeaders += 'Connection: Upgrade\r\n';
 
+        // 确保包含正确的WebSocket Accept头
+        if (websocketAccept) {
+          responseHeaders += `Sec-WebSocket-Accept: ${websocketAccept}\r\n`;
+        }
+
+        // 添加其他头信息（除了已处理的标准头）
         if (headers) {
           Object.entries(headers).forEach(([key, value]) => {
-            if (key.toLowerCase() !== 'connection' && key.toLowerCase() !== 'upgrade') {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey !== 'connection' &&
+              lowerKey !== 'upgrade' &&
+              lowerKey !== 'sec-websocket-accept') {
               responseHeaders += `${key}: ${value}\r\n`;
             }
           });
@@ -496,6 +525,12 @@ class TunnelServer {
       } else {
         // WebSocket升级失败
         Logger.warn(`WebSocket升级失败: ${upgrade_id}, 状态码: ${status_code}`);
+
+        // 清除升级超时计时器
+        if (upgradeInfo.upgradeTimeoutId) {
+          clearTimeout(upgradeInfo.upgradeTimeoutId);
+        }
+
         socket.write(`HTTP/1.1 ${status_code} WebSocket Upgrade Failed\r\n\r\n`);
         socket.destroy();
       }
@@ -508,10 +543,10 @@ class TunnelServer {
     // 从ProxyServer的requestQueue中删除请求
     global.proxyServer.requestQueue.delete(upgrade_id);
   }
-
   /**
    * 设置WebSocket数据转发
-   */  setupWebSocketDataForwarding(browserSocket, clientInfo, upgradeId) {
+   */
+  setupWebSocketDataForwarding(browserSocket, clientInfo, upgradeId) {
     // Logger.debug(`设置WebSocket数据转发: ${upgradeId}`);
 
     // 存储WebSocket连接
@@ -522,16 +557,29 @@ class TunnelServer {
       type: 'websocket_connection'
     });
 
-    // 浏览器 -> 客户端
+    // 注意：WebSocket升级后，数据传输由WebSocket协议处理
+    // 不能直接监听socket的data事件，因为需要处理WebSocket帧格式
+    // 浏览器 -> 客户端 (WebSocket帧)
     browserSocket.on('data', (data) => {
-      const wsMessage = {
-        type: 'websocket_data',
-        upgrade_id: upgradeId,
-        data: data.toString('base64'), // 使用base64编码传输
-        timestamp: Date.now()
-      };
-      this.sendMessage(clientInfo.socket, wsMessage);
-    });    // 处理浏览器连接关闭
+      try {
+        // 解析WebSocket帧，提取消息内容
+        const messages = this.parseWebSocketFrames(data);
+
+        for (const messageData of messages) {
+          const wsMessage = {
+            type: 'websocket_data',
+            upgrade_id: upgradeId,
+            data: messageData.toString('base64'), // 发送解析后的消息内容
+            timestamp: Date.now()
+          };
+          this.sendMessage(clientInfo.socket, wsMessage);
+        }
+      } catch (error) {
+        Logger.error(`解析WebSocket帧失败: ${error.message}`);
+      }
+    });
+
+    // 处理浏览器连接关闭
     browserSocket.on('close', () => {
       // Logger.debug(`浏览器WebSocket连接关闭: ${upgradeId}`);
       const wsMessage = {
@@ -554,7 +602,6 @@ class TunnelServer {
       this.requestQueue.delete(`ws_${upgradeId}`);
     });
   }
-
   /**
    * 处理WebSocket数据
    */
@@ -565,15 +612,151 @@ class TunnelServer {
     if (!wsConnection || wsConnection.type !== 'websocket_connection') {
       Logger.warn(`未找到WebSocket连接: ${upgrade_id}`);
       return;
-    }
+    } try {
+      // 解码base64数据
+      const messageData = Buffer.from(data, 'base64');
+      Logger.info(`📨 WebSocket数据转发到浏览器: ${upgrade_id}, 原始长度: ${messageData.length}, 内容: ${messageData.toString()}`);
 
-    try {
-      // 解码base64数据并发送到浏览器
-      const binaryData = Buffer.from(data, 'base64');
-      wsConnection.browserSocket.write(binaryData);
+      // 构造WebSocket帧
+      // tunnel-proxy发送的是已解析的消息内容，需要重新包装成WebSocket帧
+      const frame = this.createWebSocketFrame(messageData);
+      wsConnection.browserSocket.write(frame);
+      Logger.info(`📤 WebSocket帧发送完成: ${upgrade_id}, 帧长度: ${frame.length}`);
     } catch (error) {
       Logger.error(`WebSocket数据转发失败: ${error.message}`);
     }
+  }  /**
+   * 创建WebSocket帧
+   * @param {Buffer} payload 消息负载
+   * @param {number} opcode 操作码 (1=文本帧, 2=二进制帧)
+   * @returns {Buffer} WebSocket帧
+   */
+  createWebSocketFrame(payload, opcode = null) {
+    const payloadLength = payload.length;
+
+    // 智能判断帧类型
+    let frameOpcode = opcode;
+    if (frameOpcode === null) {
+      // 尝试判断是否为有效的UTF-8文本
+      try {
+        const text = payload.toString('utf8');
+        // 简单检查是否包含控制字符（除了常见的空格、换行等）
+        const hasControlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(text);
+        frameOpcode = hasControlChars ? 2 : 1; // 有控制字符时使用二进制帧
+      } catch (error) {
+        frameOpcode = 2; // 无法解析为UTF-8时使用二进制帧
+      }
+    }
+
+    let frame;
+    const firstByte = 0x80 | frameOpcode; // FIN=1, RSV=000, OPCODE
+
+    if (payloadLength < 126) {
+      // 短帧：2字节头 + 负载
+      frame = Buffer.allocUnsafe(2 + payloadLength);
+      frame[0] = firstByte;
+      frame[1] = payloadLength; // MASK=0, 负载长度
+      payload.copy(frame, 2);
+    } else if (payloadLength < 65536) {
+      // 中等帧：4字节头 + 负载
+      frame = Buffer.allocUnsafe(4 + payloadLength);
+      frame[0] = firstByte;
+      frame[1] = 126; // MASK=0, 扩展长度标志
+      frame.writeUInt16BE(payloadLength, 2); // 16位长度
+      payload.copy(frame, 4);
+    } else {
+      // 长帧：10字节头 + 负载
+      frame = Buffer.allocUnsafe(10 + payloadLength);
+      frame[0] = firstByte;
+      frame[1] = 127; // MASK=0, 扩展长度标志
+      frame.writeUInt32BE(0, 2); // 64位长度的高32位（设为0）
+      frame.writeUInt32BE(payloadLength, 6); // 64位长度的低32位
+      payload.copy(frame, 10);
+    }
+
+    return frame;
+  }
+
+  /**
+   * 解析WebSocket帧，提取消息内容
+   * @param {Buffer} buffer 原始帧数据
+   * @returns {Buffer[]} 解析出的消息数组
+   */
+  parseWebSocketFrames(buffer) {
+    const messages = [];
+    let offset = 0;
+
+    while (offset < buffer.length) {
+      try {
+        if (offset + 2 > buffer.length) break;
+
+        const firstByte = buffer[offset];
+        const secondByte = buffer[offset + 1];
+
+        // 检查FIN位和操作码
+        const fin = (firstByte & 0x80) === 0x80;
+        const opcode = firstByte & 0x0F;
+
+        // 处理文本帧(1)、二进制帧(2)和关闭帧(8)
+        if (opcode !== 1 && opcode !== 2 && opcode !== 8) {
+          // 跳过ping/pong等控制帧
+          offset += 2;
+          continue;
+        }
+
+        // 获取负载长度
+        const masked = (secondByte & 0x80) === 0x80;
+        let payloadLength = secondByte & 0x7F;
+
+        offset += 2;
+
+        // 处理扩展长度
+        if (payloadLength === 126) {
+          if (offset + 2 > buffer.length) break;
+          payloadLength = buffer.readUInt16BE(offset);
+          offset += 2;
+        } else if (payloadLength === 127) {
+          if (offset + 8 > buffer.length) break;
+          // 简化处理，只读取低32位（大多数情况下足够）
+          offset += 4; // 跳过高32位
+          payloadLength = buffer.readUInt32BE(offset);
+          offset += 4;
+        }
+
+        // 处理掩码
+        let maskKey = null;
+        if (masked) {
+          if (offset + 4 > buffer.length) break;
+          maskKey = buffer.slice(offset, offset + 4);
+          offset += 4;
+        }
+
+        // 检查负载数据是否完整
+        if (offset + payloadLength > buffer.length) break;
+
+        // 提取负载数据
+        let payload = buffer.slice(offset, offset + payloadLength);
+
+        // 如果有掩码，进行解码
+        if (masked && maskKey) {
+          for (let i = 0; i < payload.length; i++) {
+            payload[i] ^= maskKey[i % 4];
+          }
+        }
+
+        // 只有完整帧才添加到消息列表
+        if (fin) {
+          messages.push(payload);
+        }
+
+        offset += payloadLength;
+      } catch (error) {
+        Logger.error(`解析WebSocket帧时出错: ${error.message}`);
+        break;
+      }
+    }
+
+    return messages;
   }
 
   /**
@@ -601,7 +784,7 @@ class TunnelServer {
 
     // 检查是否是multipart请求
     const contentType = req.headers['content-type'] || '';
-    const isMultipart = contentType.includes('multipart/form-data');    if (isMultipart && ctx) {
+    const isMultipart = contentType.includes('multipart/form-data'); if (isMultipart && ctx) {
       // Logger.debug('处理multipart/form-data请求');
 
       // 对于multipart请求，从原始请求流读取数据
@@ -1015,14 +1198,13 @@ class ProxyServer {
    * 处理WebSocket升级
    */
   handleWebSocketUpgrade(request, socket, head, client) {
-    const upgradeId = this.generateRequestId();
-
-    // 存储WebSocket连接信息
+    const upgradeId = this.generateRequestId();    // 存储WebSocket连接信息（包含原始WebSocket Key用于验证）
     this.requestQueue.set(upgradeId, {
       socket,
       clientInfo: client,
       timestamp: Date.now(),
-      type: 'websocket_upgrade'
+      type: 'websocket_upgrade',
+      originalWebSocketKey: request.headers['sec-websocket-key'] // 保存原始Key
     });
 
     // 重写URL（移除客户端ID前缀）
@@ -1049,13 +1231,11 @@ class ProxyServer {
       url: proxiedUrl,
       headers: headersToSend,
       timestamp: Date.now()
-    };
-
-    // Logger.debug(`发送WebSocket升级请求: ${upgradeId} ${proxiedUrl}`);
+    };    // Logger.debug(`发送WebSocket升级请求: ${upgradeId} ${proxiedUrl}`);
     this.sendMessage(client.socket, upgradeMessage);
 
-    // 设置超时
-    setTimeout(() => {
+    // 设置超时 - 仅用于升级阶段，升级成功后会被清除
+    const upgradeTimeoutId = setTimeout(() => {
       if (this.requestQueue.has(upgradeId)) {
         this.requestQueue.delete(upgradeId);
         Logger.warn(`WebSocket升级超时: ${upgradeId}`);
@@ -1063,6 +1243,12 @@ class ProxyServer {
         socket.destroy();
       }
     }, 10000); // 10秒超时
+
+    // 将超时ID存储到请求信息中，以便升级成功时清除
+    const upgradeInfo = this.requestQueue.get(upgradeId);
+    if (upgradeInfo) {
+      upgradeInfo.upgradeTimeoutId = upgradeTimeoutId;
+    }
   }
   /**
    * 停止代理服务器
