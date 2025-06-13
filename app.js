@@ -879,13 +879,11 @@ class TunnelServer {
           Logger.warn(`客户端心跳超时: ${client.clientId || client.remoteAddress}`);
           client.socket.destroy();
         }
-      }
-
-      // 清理过期请求
+      }      // 清理过期请求
       for (const [requestId, requestInfo] of this.requestQueue.entries()) {
         if (now - requestInfo.timestamp > 30000) {
           this.requestQueue.delete(requestId);
-          if (!requestInfo.res.headersSent) {
+          if (requestInfo.res && !requestInfo.res.headersSent) {
             requestInfo.res.statusCode = 504;
             requestInfo.res.end('Request Timeout');
           }
