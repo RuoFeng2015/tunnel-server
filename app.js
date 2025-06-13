@@ -601,8 +601,7 @@ class TunnelServer {
       this.sendMessage(clientInfo.socket, wsMessage);
       this.requestQueue.delete(`ws_${upgradeId}`);
     });
-  }
-  /**
+  }  /**
    * 处理WebSocket数据
    */
   handleWebSocketData(clientInfo, message) {
@@ -612,18 +611,61 @@ class TunnelServer {
     if (!wsConnection || wsConnection.type !== 'websocket_connection') {
       Logger.warn(`未找到WebSocket连接: ${upgrade_id}`);
       return;
-    } try {
+    }
+
+    try {
       // 解码base64数据
       const messageData = Buffer.from(data, 'base64');
       Logger.info(`📨 WebSocket数据转发到浏览器: ${upgrade_id}, 原始长度: ${messageData.length}, 内容: ${messageData.toString()}`);
 
+      // 检查是否是认证相关消息
+      let isAuthMessage = false;
+      try {
+        const parsed = JSON.parse(messageData.toString());
+        if (parsed.type === 'auth_required' || parsed.type === 'auth_ok' || parsed.type === 'auth_invalid') {
+          isAuthMessage = true;
+          Logger.info(`🔐 检测到认证消息: ${parsed.type} - ${upgrade_id}`);
+        }
+      } catch (e) {
+        // 忽略JSON解析错误
+      }
+
       // 构造WebSocket帧
       // tunnel-proxy发送的是已解析的消息内容，需要重新包装成WebSocket帧
       const frame = this.createWebSocketFrame(messageData);
-      wsConnection.browserSocket.write(frame);
-      Logger.info(`📤 WebSocket帧发送完成: ${upgrade_id}, 帧长度: ${frame.length}`);
+      
+      // 对于认证消息，使用同步写入并强制刷新
+      if (isAuthMessage) {
+        const writeSuccess = wsConnection.browserSocket.write(frame);
+        if (!writeSuccess) {
+          Logger.warn(`📤 WebSocket写入缓冲区已满，等待排空: ${upgrade_id}`);
+          wsConnection.browserSocket.once('drain', () => {
+            Logger.info(`📤 WebSocket缓冲区已排空: ${upgrade_id}`);
+          });
+        }
+        
+        // 强制刷新TCP缓冲区
+        if (typeof wsConnection.browserSocket._flush === 'function') {
+          wsConnection.browserSocket._flush();
+        }
+        
+        // 使用setImmediate确保数据立即发送
+        setImmediate(() => {
+          if (wsConnection.browserSocket.writable) {
+            // 发送一个空的控制帧来确保数据被推送
+            const pingFrame = Buffer.from([0x89, 0x00]); // Ping frame with no payload
+            wsConnection.browserSocket.write(pingFrame);
+          }
+        });
+        
+        Logger.info(`📤 认证消息WebSocket帧发送完成(强制刷新): ${upgrade_id}, 帧长度: ${frame.length}`);
+      } else {
+        wsConnection.browserSocket.write(frame);
+        Logger.info(`📤 WebSocket帧发送完成: ${upgrade_id}, 帧长度: ${frame.length}`);
+      }
     } catch (error) {
       Logger.error(`WebSocket数据转发失败: ${error.message}`);
+      Logger.error(error.stack);
     }
   }  /**
    * 创建WebSocket帧
@@ -672,6 +714,11 @@ class TunnelServer {
       frame.writeUInt32BE(0, 2); // 64位长度的高32位（设为0）
       frame.writeUInt32BE(payloadLength, 6); // 64位长度的低32位
       payload.copy(frame, 10);
+    }
+
+    // 验证帧的完整性
+    if (frame.length !== (payloadLength + (payloadLength < 126 ? 2 : payloadLength < 65536 ? 4 : 10))) {
+      throw new Error(`WebSocket帧长度不匹配: 期望 ${payloadLength + (payloadLength < 126 ? 2 : payloadLength < 65536 ? 4 : 10)}, 实际 ${frame.length}`);
     }
 
     return frame;
@@ -767,9 +814,9 @@ class TunnelServer {
 
     const wsConnection = this.requestQueue.get(`ws_${upgrade_id}`);
     if (wsConnection && wsConnection.type === 'websocket_connection') {
-      Logger.debug(`关闭WebSocket连接: ${upgrade_id}`);
-      wsConnection.browserSocket.destroy();
-      this.requestQueue.delete(`ws_${upgrade_id}`);
+      // Logger.debug(`关闭WebSocket连接: ${upgrade_id}`);
+      // wsConnection.browserSocket.destroy();
+      // this.requestQueue.delete(`ws_${upgrade_id}`);
     }
   }
 
